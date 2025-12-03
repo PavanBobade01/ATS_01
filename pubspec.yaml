@@ -1,0 +1,44 @@
+name: ambulance_swift_police # Replace with your actual project name if different
+description: "A Flutter application for traffic police to track ambulances."
+publish_to: 'none' # Prevent accidental publishing to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0' # SDK constraint added
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # For making HTTP requests (Login API)
+  http: ^1.2.1
+
+  # For securely storing the JWT token
+  flutter_secure_storage: ^9.0.0
+
+  # For STOMP WebSocket communication
+  stomp_dart_client: ^1.0.1
+
+  # For displaying Google Maps
+  google_maps_flutter: ^2.6.1
+
+  # For getting the device's GPS location
+  location: ^5.0.0
+
+  # Cupertino icons are generally included by default, but good to have
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icons/ambulance.png
+    - assets/icons/police.png
+
