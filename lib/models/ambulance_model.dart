@@ -4,13 +4,13 @@ class Ambulance {
   final String id;
   final String? vehicleNumber;
   final String? driverName;
-  final String? status;        // e.g. ON_DUTY / OFF_DUTY
-  final LatLng? location;      // For map
+  final String? status;
+  final LatLng? location;
   final DateTime? lastUpdated;
 
-  // Extra fields useful for police app (client-side only)
-  final double? distanceKm;    // distance from police
-  final String? priority;      // e.g. NORMAL / CRITICAL
+  // Police-only fields (optional)
+  final double? distanceKm;
+  final String? priority;
 
   Ambulance({
     required this.id,
@@ -24,13 +24,14 @@ class Ambulance {
   });
 
   factory Ambulance.fromJson(Map<String, dynamic> json) {
-    // ---- ID handling (int or string) ----
+    // ---- ID ----
     final dynamic rawId = json['id'];
     final String id = rawId?.toString() ?? '';
 
-    // ---- Location handling (GeoJSON Point) ----
+    // ---- LOCATION (GeoJSON Point) ----
     LatLng? loc;
     final locationJson = json['location'];
+
     if (locationJson != null &&
         locationJson is Map &&
         locationJson['coordinates'] is List &&
@@ -38,13 +39,13 @@ class Ambulance {
       final coords = locationJson['coordinates'] as List;
       final double lng = (coords[0] as num).toDouble();
       final double lat = (coords[1] as num).toDouble();
-      loc = LatLng(lat, lng); // [lng, lat] → (lat, lng)
+      loc = LatLng(lat, lng); // GeoJSON → Google Maps
     }
 
-    // ---- lastUpdated parsing ----
+    // ---- lastUpdated ----
     DateTime? updated;
     final lastUpdatedStr = json['lastUpdated'];
-    if (lastUpdatedStr is String && lastUpdatedStr.isNotEmpty) {
+    if (lastUpdatedStr is String) {
       updated = DateTime.tryParse(lastUpdatedStr);
     }
 
@@ -55,11 +56,13 @@ class Ambulance {
       status: json['status'] as String?,
       location: loc,
       lastUpdated: updated,
-      priority: json['priority'] as String?,   // if backend sends it
+
+      // Police extras
+      distanceKm: (json['distanceKm'] as num?)?.toDouble(),
+      priority: json['priority'] as String?,
     );
   }
 
-  // Allows you to add distance later (for police app) without mutating
   Ambulance copyWith({
     String? vehicleNumber,
     String? driverName,

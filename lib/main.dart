@@ -34,7 +34,7 @@ class MyApp extends StatelessWidget {
           }
           // If token exists, go to map
           if (snapshot.hasData && snapshot.data == true) {
-            return const MapScreen();
+            return  MapScreen();
           }
           // Otherwise, go to login
           return LoginScreen();

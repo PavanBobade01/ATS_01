@@ -1,227 +1,149 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
-import 'map_screen.dart';
-import 'police_map_screen.dart';
-import 'register_screen.dart';
+import 'login_screen.dart';
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
+  final _confirmCtrl = TextEditingController();
+
   final AuthService _authService = AuthService();
 
   bool _isLoading = false;
   bool _obscure = true;
+  bool _obscureConfirm = true;
 
-  @override
-  void dispose() {
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
-    super.dispose();
-  }
+  // Default role
+  String _selectedRole = "ROLE_DRIVER";
 
-  /// Robust login handler:
-  /// - Calls AuthService.login
-  /// - Reads saved token/role
-  /// - Attempts to decode JWT for role claims if needed
-  /// - Normalizes role strings and navigates accordingly
-  Future<void> _handleLogin() async {
+  final List<Map<String, String>> _roles = const [
+    {
+      "label": "Ambulance Driver",
+      "value": "ROLE_DRIVER",
+    },
+    {
+      "label": "Traffic Police",
+      "value": "ROLE_POLICE",
+    },
+    {
+      "label": "Citizen / User",
+      "value": "ROLE_USER",
+    },
+  ];
+
+  Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+    });
 
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text.trim();
 
-    // Call login service
-    final (bool success, String? roleFromService, String? error) =
-    await _authService.login(email, password);
-
-    // read stored token / role (if AuthService saved them)
-    final storedToken = await _authService.getToken();
-    final storedRole = await _authService.getSavedRole();
+    final (bool success, String? error) =
+    await _authService.register(email, password, _selectedRole);
 
     if (!mounted) return;
-    setState(() => _isLoading = false);
 
-    // Debug prints - useful when things don't match expectations
-    try {
-      print('=== LOGIN DEBUG ===');
-      print('login success: $success');
-      print('roleFromService: $roleFromService');
-      print('storedRole (secure storage): $storedRole');
-      if (storedToken != null && storedToken.length > 20) {
-        print('storedToken (prefix): ${storedToken.substring(0, 20)}...');
-      } else {
-        print('storedToken: $storedToken');
-      }
-    } catch (_) {}
+    setState(() {
+      _isLoading = false;
+    });
 
     if (!success) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error ?? "Login failed"),
+          content: Text(error ?? "Registration failed"),
           backgroundColor: Colors.redAccent,
         ),
       );
       return;
     }
 
-    // Resolve role: prefer service -> saved -> JWT claims -> fallback heuristic
-    String resolvedRole = (roleFromService ?? storedRole ?? '').toString().toUpperCase();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Registration successful! Please login."),
+        backgroundColor: Colors.green,
+      ),
+    );
 
-    // If empty, try to decode the JWT for common claim names
-    if (resolvedRole.isEmpty && storedToken != null) {
-      final claims = _decodeJwtPayload(storedToken);
-      if (claims.isNotEmpty) {
-        // common keys to look for
-        final candidates = ['role', 'roles', 'authorities', 'scope', 'user_role', 'roleName', 'type'];
-        for (final k in candidates) {
-          if (claims.containsKey(k)) {
-            final v = claims[k];
-            if (v is String && v.isNotEmpty) {
-              resolvedRole = v.toUpperCase();
-              break;
-            } else if (v is List && v.isNotEmpty) {
-              resolvedRole = v.first.toString().toUpperCase();
-              break;
-            }
-          }
-        }
-
-        // sometimes role sits inside user claim
-        if (resolvedRole.isEmpty && claims['user'] is Map) {
-          final user = claims['user'] as Map;
-          if (user['role'] != null) resolvedRole = user['role'].toString().toUpperCase();
-          else if (user['roles'] is List && (user['roles'] as List).isNotEmpty) {
-            resolvedRole = (user['roles'] as List).first.toString().toUpperCase();
-          }
-        }
-
-        // another common key: authorities
-        if (resolvedRole.isEmpty && claims['authorities'] is List && (claims['authorities'] as List).isNotEmpty) {
-          resolvedRole = (claims['authorities'] as List).first.toString().toUpperCase();
-        }
-      }
-    }
-
-    // final fallback: use email heuristic only when role unknown
-    if (resolvedRole.isEmpty) {
-      if (email.toLowerCase().startsWith('police')) {
-        resolvedRole = 'ROLE_POLICE';
-      } else {
-        resolvedRole = 'ROLE_DRIVER';
-      }
-    }
-
-    print('Resolved role: $resolvedRole');
-
-    // Navigate based on resolved role
-    if (resolvedRole.contains('POLICE')) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const PoliceMapScreen()),
-      );
-    } else if (resolvedRole.contains('DRIVER')) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MapScreen()),
-      );
-    } else {
-      // fallback to driver map if unknown
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MapScreen()),
-      );
-    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+    );
   }
 
-  /// Decode JWT payload (no verification) and return claims map
-  Map<String, dynamic> _decodeJwtPayload(String token) {
-    try {
-      final parts = token.split('.');
-      if (parts.length != 3) return {};
-      var payload = parts[1];
-      payload = base64Url.normalize(payload);
-      final decoded = utf8.decode(base64Url.decode(payload));
-      final parsed = jsonDecode(decoded);
-      if (parsed is Map<String, dynamic>) return parsed;
-      return Map<String, dynamic>.from(parsed);
-    } catch (e) {
-      // ignore decode errors - return empty map
-      print('JWT decode error: $e');
-      return {};
-    }
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    _confirmCtrl.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final neonBlue = const Color(0xFF00E5FF);
+    final neonPurple = const Color(0xFFB388FF);
     final darkBg = const Color(0xFF050814);
 
     return Scaffold(
       backgroundColor: darkBg,
       body: Stack(
         children: [
-          // 🔵 Neon blobs background
+          // Background neon blobs
           Positioned(
-            top: -80,
-            left: -60,
-            child: _neonCircle(180, Colors.pinkAccent.withOpacity(0.25)),
+            top: -70,
+            right: -60,
+            child: _neonCircle(170, neonPurple.withOpacity(0.25)),
           ),
           Positioned(
-            bottom: -100,
-            right: -70,
-            child: _neonCircle(220, neonBlue.withOpacity(0.18)),
+            bottom: -110,
+            left: -80,
+            child: _neonCircle(230, Colors.cyanAccent.withOpacity(0.2)),
           ),
 
-          // Main content
           Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // App title
                   Text(
-                    "Ambulance\nTracking System",
-                    textAlign: TextAlign.center,
+                    "Create Account",
                     style: TextStyle(
-                      color: neonBlue,
-                      fontSize: 28,
+                      color: neonPurple,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                      letterSpacing: 1.1,
                       shadows: [
                         Shadow(
-                          color: neonBlue.withOpacity(0.7),
-                          blurRadius: 16,
+                          color: neonPurple.withOpacity(0.7),
+                          blurRadius: 15,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
-                    "Login to continue as Driver / Traffic Police",
+                    "Register as Driver, Traffic Police, or User",
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.7),
                       fontSize: 13,
                     ),
                   ),
+                  const SizedBox(height: 26),
 
-                  const SizedBox(height: 32),
-
-                  // Glass / neon card
-                  _buildGlassCard(neonBlue),
+                  _buildGlassCard(neonPurple),
                 ],
               ),
             ),
@@ -231,19 +153,19 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildGlassCard(Color neonBlue) {
+  Widget _buildGlassCard(Color neonPurple) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.04),
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
-          color: neonBlue.withOpacity(0.6),
+          color: neonPurple.withOpacity(0.6),
           width: 1.3,
         ),
         boxShadow: [
           BoxShadow(
-            color: neonBlue.withOpacity(0.35),
+            color: neonPurple.withOpacity(0.35),
             blurRadius: 18,
             spreadRadius: -4,
             offset: const Offset(0, 10),
@@ -254,7 +176,6 @@ class _LoginScreenState extends State<LoginScreen> {
         key: _formKey,
         child: Column(
           children: [
-            // Email
             _buildNeonTextField(
               controller: _emailCtrl,
               label: "Email",
@@ -269,9 +190,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 return null;
               },
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
 
-            // Password
             _buildNeonTextField(
               controller: _passwordCtrl,
               label: "Password",
@@ -300,20 +220,102 @@ class _LoginScreenState extends State<LoginScreen> {
                 return null;
               },
             ),
+            const SizedBox(height: 16),
+
+            _buildNeonTextField(
+              controller: _confirmCtrl,
+              label: "Confirm Password",
+              hint: "••••••••",
+              icon: Icons.lock_person_outlined,
+              obscureText: _obscureConfirm,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureConfirm ? Icons.visibility_off : Icons.visibility,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscureConfirm = !_obscureConfirm;
+                  });
+                },
+              ),
+              validator: (v) {
+                if (v == null || v.isEmpty) {
+                  return "Confirm password";
+                }
+                if (v != _passwordCtrl.text) {
+                  return "Passwords do not match";
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 18),
+
+            // Role dropdown
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "Registering as",
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.8),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.22),
+                ),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedRole,
+                  isExpanded: true,
+                  dropdownColor: const Color(0xFF090C1C),
+                  icon: const Icon(
+                    Icons.arrow_drop_down,
+                    color: Colors.white70,
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                  items: _roles.map((r) {
+                    return DropdownMenuItem<String>(
+                      value: r["value"],
+                      child: Text(
+                        r["label"]!,
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val == null) return;
+                    setState(() {
+                      _selectedRole = val;
+                    });
+                  },
+                ),
+              ),
+            ),
 
             const SizedBox(height: 24),
 
-            // Login button
             SizedBox(
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: _isLoading ? null : _handleLogin,
+                onPressed: _isLoading ? null : _handleRegister,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: neonBlue,
+                  backgroundColor: neonPurple,
                   foregroundColor: Colors.black,
                   elevation: 10,
-                  shadowColor: neonBlue.withOpacity(0.8),
+                  shadowColor: neonPurple.withOpacity(0.8),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(18),
                   ),
@@ -324,15 +326,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.6,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                    valueColor:
+                    AlwaysStoppedAnimation<Color>(Colors.black),
                   ),
                 )
                     : const Text(
-                  "Login",
+                  "Register",
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
-                    letterSpacing: 0.8,
+                    letterSpacing: 0.6,
                   ),
                 ),
               ),
@@ -340,12 +343,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
             const SizedBox(height: 16),
 
-            // Register link
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "New here? ",
+                  "Already have an account? ",
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.75),
                     fontSize: 13,
@@ -353,16 +355,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    Navigator.of(context).push(
+                    Navigator.of(context).pushAndRemoveUntil(
                       MaterialPageRoute(
-                        builder: (_) => const RegisterScreen(),
-                      ),
+                          builder: (_) => const LoginScreen()),
+                          (_) => false,
                     );
                   },
                   child: Text(
-                    "Create account",
+                    "Login",
                     style: TextStyle(
-                      color: neonBlue,
+                      color: neonPurple,
                       fontWeight: FontWeight.bold,
                       fontSize: 13,
                     ),
@@ -381,8 +383,8 @@ class _LoginScreenState extends State<LoginScreen> {
     required String label,
     required String hint,
     required IconData icon,
-    TextInputType? keyboardType,
     String? Function(String?)? validator,
+    TextInputType? keyboardType,
     bool obscureText = false,
     Widget? suffixIcon,
   }) {
@@ -418,7 +420,7 @@ class _LoginScreenState extends State<LoginScreen> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(
-            color: Color(0xFF00E5FF),
+            color: Color(0xFFB388FF),
             width: 1.5,
           ),
         ),

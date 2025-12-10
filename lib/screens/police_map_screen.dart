@@ -32,6 +32,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
   BitmapDescriptor? _ambulanceIcon;
 
   StreamSubscription<LocationData>? _locationSub;
+  StreamSubscription? _stompSub;
 
   final LatLng _initialCamera = const LatLng(18.5204, 73.8567);
 
@@ -40,7 +41,23 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
     super.initState();
     _loadIcons();
     _startLocation();
-    _stompService.connect();  // ready for fetching ambulance data later
+
+    // 🔹 CONNECT to websocket
+    _stompService.connect(onConnect: () {
+      _listenAmbulances();     // <--- IMPORTANT
+    });
+  }
+
+  void _listenAmbulances() {
+    _stompSub = _stompService.ambulanceStream.listen((data) {
+      try {
+        final amb = Ambulance.fromJson(data);
+        showAmbulance(amb);
+      } catch (e) {
+        print("Error parsing ambulance JSON: $e");
+        print(data);
+      }
+    });
   }
 
   Future<void> _loadIcons() async {
@@ -62,9 +79,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
       if (loc.latitude == null || loc.longitude == null) return;
 
       _currentLocation = loc;
-      _updatePoliceMarker(
-        LatLng(loc.latitude!, loc.longitude!),
-      );
+      _updatePoliceMarker(LatLng(loc.latitude!, loc.longitude!));
     });
   }
 
@@ -85,7 +100,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
     setState(() {});
   }
 
-  // 🔹 Call this when backend sends ambulance data
+  // 🔹 Render Ambulance on Map
   void showAmbulance(Ambulance amb) {
     if (amb.location == null) return;
 
@@ -93,7 +108,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
       markerId: MarkerId(amb.id),
       position: amb.location!,
       icon: _ambulanceIcon ?? BitmapDescriptor.defaultMarker,
-      infoWindow: InfoWindow(title: "Ambulance ${amb.id}"),
+      infoWindow: InfoWindow(title: "Ambulance ${amb.driverName ?? ''}"),
     );
 
     setState(() {});
@@ -101,6 +116,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
 
   Future<void> _logout() async {
     _locationSub?.cancel();
+    _stompSub?.cancel();
     _stompService.disconnect();
     await _authService.logout();
 
@@ -115,6 +131,7 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
   @override
   void dispose() {
     _locationSub?.cancel();
+    _stompSub?.cancel();
     _stompService.disconnect();
     _mapController?.dispose();
     super.dispose();
@@ -126,7 +143,6 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
       body: Stack(
         children: [
 
-          // ✅ Full screen map like ambulance app
           GoogleMap(
             initialCameraPosition: CameraPosition(
               target: _initialCamera,
@@ -142,7 +158,6 @@ class _PoliceMapScreenState extends State<PoliceMapScreen> {
             myLocationButtonEnabled: false,
           ),
 
-          // ✅ Top floating bar like ambulance app
           Positioned(
             top: 40,
             left: 16,
